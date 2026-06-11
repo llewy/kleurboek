@@ -1,0 +1,12 @@
+{
+  "name": "kleurboek",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,green \"python backend/main.py\" \"npm run dev --prefix frontend\"",
+    "dev:backend": "python backend/main.py",
+    "dev:frontend": "npm run dev --prefix frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
