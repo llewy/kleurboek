@@ -84,7 +84,42 @@ async def startup():
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "endpoint": AZURE_OPENAI_ENDPOINT, "has_key": bool(AZURE_OPENAI_API_KEY)}
+
+
+@app.get("/api/check-azure")
+async def check_azure():
+    import httpx
+    import socket
+
+    result = {
+        "endpoint": AZURE_OPENAI_ENDPOINT,
+        "has_key": bool(AZURE_OPENAI_API_KEY),
+        "key_prefix": AZURE_OPENAI_API_KEY[:8] + "..." if AZURE_OPENAI_API_KEY else "",
+        "deployment": IMAGE_DEPLOYMENT,
+    }
+
+    # DNS check
+    try:
+        host = AZURE_OPENAI_ENDPOINT.replace("https://", "").split("/")[0]
+        ips = socket.getaddrinfo(host, 443)
+        result["dns"] = [ip[4][0] for ip in ips[:3]]
+        result["dns_ok"] = True
+    except Exception as e:
+        result["dns_ok"] = False
+        result["dns_error"] = str(e)
+
+    # TCP / TLS check
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(AZURE_OPENAI_ENDPOINT)
+            result["tls_status"] = resp.status_code
+            result["tls_ok"] = True
+    except Exception as e:
+        result["tls_ok"] = False
+        result["tls_error"] = type(e).__name__ + ": " + str(e)[:200]
+
+    return result
 
 
 @app.post("/api/generate-coloring-page")
