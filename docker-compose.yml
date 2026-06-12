@@ -5,7 +5,7 @@ services:
     build: .
     container_name: kleurboek
     ports:
-      - "8000:8000"
+      - "8004:8000"
     environment:
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
