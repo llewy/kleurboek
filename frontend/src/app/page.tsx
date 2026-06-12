@@ -119,7 +119,7 @@ export default function Home() {
     setProgress("Bezig met starten...");
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+      const apiBase = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
       const res = await fetch(`${apiBase}/api/generate-coloring-page`, {
         method: "POST",
         body: JSON.stringify({ image: original, difficulty }),

@@ -1,12 +1,12 @@
 import os
-import asyncio
 import base64
 import io
 import json
 import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -84,46 +84,12 @@ async def startup():
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "endpoint": AZURE_OPENAI_ENDPOINT, "has_key": bool(AZURE_OPENAI_API_KEY)}
-
-
-@app.get("/api/check-azure")
-async def check_azure():
-    import socket
-    import requests as sync_requests
-
-    result = {
-        "endpoint": AZURE_OPENAI_ENDPOINT,
-        "has_key": bool(AZURE_OPENAI_API_KEY),
-        "key_prefix": AZURE_OPENAI_API_KEY[:8] + "..." if AZURE_OPENAI_API_KEY else "",
-        "deployment": IMAGE_DEPLOYMENT,
-    }
-
-    # DNS check
-    try:
-        host = AZURE_OPENAI_ENDPOINT.replace("https://", "").split("/")[0]
-        ips = socket.getaddrinfo(host, 443)
-        result["dns"] = [ip[4][0] for ip in ips[:3]]
-        result["dns_ok"] = True
-    except Exception as e:
-        result["dns_ok"] = False
-        result["dns_error"] = str(e)
-
-    # TCP / TLS check
-    try:
-        resp = sync_requests.get(AZURE_OPENAI_ENDPOINT, timeout=10)
-        result["tls_status"] = resp.status_code
-        result["tls_ok"] = True
-    except Exception as e:
-        result["tls_ok"] = False
-        result["tls_error"] = type(e).__name__ + ": " + str(e)[:200]
-
-    return result
+    return {"status": "ok"}
 
 
 @app.post("/api/generate-coloring-page")
 async def generate_coloring_page(req: GenerateRequest):
-    import httpx
+    import requests as http_requests
 
     if not AZURE_OPENAI_ENDPOINT or not AZURE_OPENAI_API_KEY:
         raise HTTPException(status_code=500, detail="Azure OpenAI credentials not configured")
@@ -132,13 +98,8 @@ async def generate_coloring_page(req: GenerateRequest):
     prompt = LEVEL_PROMPTS[level]
 
     async def generate():
-        import requests as sync_requests
-
-        logger.info("Generate started for difficulty=%s", level)
-
         raw_base64 = req.image.split(",", 1)[1]
         image_bytes = base64.b64decode(raw_base64)
-        logger.info("Image decoded: %d bytes", len(image_bytes))
 
         yield event({"step": "uploading", "message": "Foto voorbereiden..."})
 
@@ -148,12 +109,9 @@ async def generate_coloring_page(req: GenerateRequest):
         )
 
         yield event({"step": "generating", "message": "Kleurplaat genereren (kan 30-60 sec duren)..."})
-        logger.info("Calling Azure OpenAI edit API...")
 
-        loop = asyncio.get_event_loop()
-
-        def call_azure():
-            return sync_requests.post(
+        try:
+            response = http_requests.post(
                 edit_url,
                 headers={"Api-Key": AZURE_OPENAI_API_KEY},
                 data={
@@ -165,61 +123,33 @@ async def generate_coloring_page(req: GenerateRequest):
                 files={
                     "image": ("photo.png", io.BytesIO(image_bytes), "image/png"),
                 },
-                timeout=120,
             )
 
-        task = asyncio.create_task(loop.run_in_executor(None, call_azure))
-
-        try:
-            while not task.done():
-                yield event({"step": "generating", "message": "Kleurplaat genereren..."})
-                done, _ = await asyncio.wait([task], timeout=5.0)
-                if done:
-                    break
-
-            resp = task.result()
-            logger.info("Azure response status: %s", resp.status_code)
-
-            if not resp.ok:
-                logger.error("Azure API error: %s", resp.text[:500])
-                yield event({"step": "error", "message": f"Azure OpenAI fout: {resp.text[:300]}"})
+            if not response.ok:
+                yield event({"step": "error", "message": f"Azure OpenAI fout: {response.text[:300]}"})
                 return
 
-            result = resp.json()
+            result = response.json()
             b64_data = result.get("data", [{}])[0].get("b64_json")
 
             if not b64_data:
-                logger.error("No image data in Azure response")
                 yield event({"step": "error", "message": "Geen afbeelding gegenereerd"})
                 return
 
-            logger.info("Image generated successfully")
             yield event({
                 "step": "done",
                 "image_data": f"data:image/png;base64,{b64_data}",
             })
 
         except Exception as e:
-            logger.exception("Error during generation")
             yield event({"step": "error", "message": str(e)})
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 # Serve frontend static files (for Docker/production)
-@app.get("/{full_path:path}")
-async def serve_static(full_path: str):
-    if not os.path.isdir(STATIC_DIR):
-        return HTMLResponse("Not Found", status_code=404)
-    if not full_path:
-        full_path = "index.html"
-    file_path = os.path.join(STATIC_DIR, full_path)
-    if os.path.isfile(file_path):
-        return FileResponse(file_path)
-    index_path = os.path.join(STATIC_DIR, "index.html")
-    if os.path.isfile(index_path):
-        return FileResponse(index_path, media_type="text/html")
-    return HTMLResponse("Not Found", status_code=404)
+if os.path.isdir(STATIC_DIR):
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn
