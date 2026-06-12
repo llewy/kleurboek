@@ -1,6 +1,5 @@
 import os
 import base64
-import io
 import json
 import logging
 from fastapi import FastAPI, HTTPException
@@ -89,7 +88,7 @@ async def health():
 
 @app.post("/api/generate-coloring-page")
 async def generate_coloring_page(req: GenerateRequest):
-    import requests as http_requests
+    import httpx
 
     if not AZURE_OPENAI_ENDPOINT or not AZURE_OPENAI_API_KEY:
         raise HTTPException(status_code=500, detail="Azure OpenAI credentials not configured")
@@ -111,25 +110,26 @@ async def generate_coloring_page(req: GenerateRequest):
         yield event({"step": "generating", "message": "Kleurplaat genereren (kan 30-60 sec duren)..."})
 
         try:
-            response = http_requests.post(
-                edit_url,
-                headers={"Api-Key": AZURE_OPENAI_API_KEY},
-                data={
-                    "prompt": prompt,
-                    "n": "1",
-                    "size": A4_SIZE,
-                    "quality": "high",
-                },
-                files={
-                    "image": ("photo.png", io.BytesIO(image_bytes), "image/png"),
-                },
-            )
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(
+                    edit_url,
+                    headers={"Api-Key": AZURE_OPENAI_API_KEY},
+                    data={
+                        "prompt": prompt,
+                        "n": "1",
+                        "size": A4_SIZE,
+                        "quality": "high",
+                    },
+                    files={
+                        "image": ("photo.png", image_bytes, "image/png"),
+                    },
+                )
 
-            if not response.ok:
-                yield event({"step": "error", "message": f"Azure OpenAI fout: {response.text[:300]}"})
+            if not resp.is_success:
+                yield event({"step": "error", "message": f"Azure OpenAI fout: {resp.text[:300]}"})
                 return
 
-            result = response.json()
+            result = resp.json()
             b64_data = result.get("data", [{}])[0].get("b64_json")
 
             if not b64_data:
