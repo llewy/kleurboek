@@ -16,15 +16,14 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Kleurboek API")
 
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
-if CORS_ORIGINS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[o.strip() for o in CORS_ORIGINS.split(",") if o.strip()],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in CORS_ORIGINS.split(",") if o.strip()],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
 AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
