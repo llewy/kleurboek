@@ -1,4 +1,5 @@
 import os
+import asyncio
 import base64
 import json
 import logging
@@ -113,9 +114,9 @@ async def generate_coloring_page(req: GenerateRequest):
         yield event({"step": "generating", "message": "Kleurplaat genereren (kan 30-60 sec duren)..."})
         logger.info("Calling Azure OpenAI edit API...")
 
-        try:
+        async def call_azure():
             async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(
+                return await client.post(
                     edit_url,
                     headers={"Api-Key": AZURE_OPENAI_API_KEY},
                     data={
@@ -129,6 +130,16 @@ async def generate_coloring_page(req: GenerateRequest):
                     },
                 )
 
+        task = asyncio.create_task(call_azure())
+
+        try:
+            while not task.done():
+                yield event({"step": "generating", "message": "Kleurplaat genereren..."})
+                done, _ = await asyncio.wait([task], timeout=5.0)
+                if done:
+                    break
+
+            resp = task.result()
             logger.info("Azure response status: %s", resp.status_code)
 
             if not resp.is_success:
