@@ -119,7 +119,8 @@ export default function Home() {
     setProgress("Bezig met starten...");
 
     try {
-      const res = await fetch("/api/generate-coloring-page", {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+      const res = await fetch(`${apiBase}/api/generate-coloring-page`, {
         method: "POST",
         body: JSON.stringify({ image: original, difficulty }),
         headers: { "Content-Type": "application/json" },
