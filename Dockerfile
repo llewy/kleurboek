@@ -22,7 +22,6 @@ COPY --from=frontend /build/frontend/out /app/static
 
 EXPOSE 8000
 
-ENV CORS_ORIGINS=""
 ENV STATIC_DIR="/app/static"
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
