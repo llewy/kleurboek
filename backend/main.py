@@ -5,8 +5,7 @@ import json
 import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -149,8 +148,19 @@ async def generate_coloring_page(req: GenerateRequest):
 
 
 # Serve frontend static files (for Docker/production)
-if os.path.isdir(STATIC_DIR):
-    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+@app.get("/{full_path:path}")
+async def serve_static(full_path: str):
+    if not os.path.isdir(STATIC_DIR):
+        return HTMLResponse("Not Found", status_code=404)
+    if not full_path:
+        full_path = "index.html"
+    file_path = os.path.join(STATIC_DIR, full_path)
+    if os.path.isfile(file_path):
+        return FileResponse(file_path)
+    index_path = os.path.join(STATIC_DIR, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path, media_type="text/html")
+    return HTMLResponse("Not Found", status_code=404)
 
 if __name__ == "__main__":
     import uvicorn
