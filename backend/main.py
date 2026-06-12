@@ -1,6 +1,7 @@
 import os
 import asyncio
 import base64
+import io
 import json
 import logging
 from fastapi import FastAPI, HTTPException
@@ -88,8 +89,8 @@ async def health():
 
 @app.get("/api/check-azure")
 async def check_azure():
-    import httpx
     import socket
+    import requests as sync_requests
 
     result = {
         "endpoint": AZURE_OPENAI_ENDPOINT,
@@ -110,10 +111,9 @@ async def check_azure():
 
     # TCP / TLS check
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(AZURE_OPENAI_ENDPOINT)
-            result["tls_status"] = resp.status_code
-            result["tls_ok"] = True
+        resp = sync_requests.get(AZURE_OPENAI_ENDPOINT, timeout=10)
+        result["tls_status"] = resp.status_code
+        result["tls_ok"] = True
     except Exception as e:
         result["tls_ok"] = False
         result["tls_error"] = type(e).__name__ + ": " + str(e)[:200]
@@ -132,6 +132,8 @@ async def generate_coloring_page(req: GenerateRequest):
     prompt = LEVEL_PROMPTS[level]
 
     async def generate():
+        import requests as sync_requests
+
         logger.info("Generate started for difficulty=%s", level)
 
         raw_base64 = req.image.split(",", 1)[1]
@@ -148,23 +150,25 @@ async def generate_coloring_page(req: GenerateRequest):
         yield event({"step": "generating", "message": "Kleurplaat genereren (kan 30-60 sec duren)..."})
         logger.info("Calling Azure OpenAI edit API...")
 
-        async def call_azure():
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                return await client.post(
-                    edit_url,
-                    headers={"Api-Key": AZURE_OPENAI_API_KEY},
-                    data={
-                        "prompt": prompt,
-                        "n": "1",
-                        "size": A4_SIZE,
-                        "quality": "high",
-                    },
-                    files={
-                        "image": ("photo.png", image_bytes, "image/png"),
-                    },
-                )
+        loop = asyncio.get_event_loop()
 
-        task = asyncio.create_task(call_azure())
+        def call_azure():
+            return sync_requests.post(
+                edit_url,
+                headers={"Api-Key": AZURE_OPENAI_API_KEY},
+                data={
+                    "prompt": prompt,
+                    "n": "1",
+                    "size": A4_SIZE,
+                    "quality": "high",
+                },
+                files={
+                    "image": ("photo.png", io.BytesIO(image_bytes), "image/png"),
+                },
+                timeout=120,
+            )
+
+        task = asyncio.create_task(loop.run_in_executor(None, call_azure))
 
         try:
             while not task.done():
@@ -176,7 +180,7 @@ async def generate_coloring_page(req: GenerateRequest):
             resp = task.result()
             logger.info("Azure response status: %s", resp.status_code)
 
-            if not resp.is_success:
+            if not resp.ok:
                 logger.error("Azure API error: %s", resp.text[:500])
                 yield event({"step": "error", "message": f"Azure OpenAI fout: {resp.text[:300]}"})
                 return
