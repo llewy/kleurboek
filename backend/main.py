@@ -97,8 +97,11 @@ async def generate_coloring_page(req: GenerateRequest):
     prompt = LEVEL_PROMPTS[level]
 
     async def generate():
+        logger.info("Generate started for difficulty=%s", level)
+
         raw_base64 = req.image.split(",", 1)[1]
         image_bytes = base64.b64decode(raw_base64)
+        logger.info("Image decoded: %d bytes", len(image_bytes))
 
         yield event({"step": "uploading", "message": "Foto voorbereiden..."})
 
@@ -108,6 +111,7 @@ async def generate_coloring_page(req: GenerateRequest):
         )
 
         yield event({"step": "generating", "message": "Kleurplaat genereren (kan 30-60 sec duren)..."})
+        logger.info("Calling Azure OpenAI edit API...")
 
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
@@ -125,7 +129,10 @@ async def generate_coloring_page(req: GenerateRequest):
                     },
                 )
 
+            logger.info("Azure response status: %s", resp.status_code)
+
             if not resp.is_success:
+                logger.error("Azure API error: %s", resp.text[:500])
                 yield event({"step": "error", "message": f"Azure OpenAI fout: {resp.text[:300]}"})
                 return
 
@@ -133,15 +140,18 @@ async def generate_coloring_page(req: GenerateRequest):
             b64_data = result.get("data", [{}])[0].get("b64_json")
 
             if not b64_data:
+                logger.error("No image data in Azure response")
                 yield event({"step": "error", "message": "Geen afbeelding gegenereerd"})
                 return
 
+            logger.info("Image generated successfully")
             yield event({
                 "step": "done",
                 "image_data": f"data:image/png;base64,{b64_data}",
             })
 
         except Exception as e:
+            logger.exception("Error during generation")
             yield event({"step": "error", "message": str(e)})
 
     return StreamingResponse(generate(), media_type="text/event-stream")

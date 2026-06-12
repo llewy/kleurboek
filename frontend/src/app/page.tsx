@@ -136,6 +136,8 @@ export default function Home() {
       const decoder = new TextDecoder();
       let buffer = "";
 
+      let streamError: string | null = null;
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -167,12 +169,20 @@ export default function Home() {
                 setProgress(null);
                 setLoading(false);
               } else if (data.step === "error") {
-                throw new Error(data.message);
+                streamError = data.message;
+                break;
               }
             } catch {
-              // skip
+              // skip invalid JSON
             }
           }
+        }
+
+        if (streamError) {
+          setError(streamError);
+          setLoading(false);
+          setProgress(null);
+          break;
         }
       }
     } catch (err) {
