@@ -127,8 +127,13 @@ export default function Home() {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || `Fout (${res.status})`);
+        const text = await res.text();
+        try {
+          const err = JSON.parse(text);
+          throw new Error(err.detail || `Fout (${res.status})`);
+        } catch {
+          throw new Error(text || `Fout (${res.status})`);
+        }
       }
 
       const reader = res.body?.getReader();
