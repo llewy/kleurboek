@@ -102,6 +102,17 @@ async def generate_coloring_page(req: GenerateRequest):
         raw_base64 = req.image.split(",", 1)[1]
         image_bytes = base64.b64decode(raw_base64)
 
+        from PIL import Image
+        try:
+            img = Image.open(io.BytesIO(image_bytes))
+            img = img.convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            image_bytes = buf.getvalue()
+        except Exception:
+            yield event({"step": "error", "message": "Afbeelding kan niet worden verwerkt"})
+            return
+
         yield event({"step": "uploading", "message": "Foto voorbereiden..."})
 
         edit_url = (
